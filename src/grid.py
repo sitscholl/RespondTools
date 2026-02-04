@@ -37,7 +37,7 @@ class Grid:
     data: xr.Dataset
     original_location: str | Path
     nodata_mask: xr.Dataset
-    nodata: float | int | None
+    nodata: Dict[str, float | int | None]
     transformation: Dict[str, TransformParameters] | None = None
 
     def __post_init__(self):
@@ -55,19 +55,26 @@ class Grid:
             data = data.to_dataset(name = data.name or 'variable')
 
         nodata_mask = []
+        nodata_vals = {}
         for var, arr in data.data_vars.items():
             nodata = getattr(arr.rio, "nodata", None)
             
             if nodata is None:
-                if np.issubdtype(arr.dtype, np.float):
-                    nodata_mask.append(xr.where(arr.notnull(), 1, 0).astype(bool))
+                if np.issubdtype(arr.dtype, np.floating):
+                    mask = xr.where(arr.notnull(), 1, 0).astype(bool)
                     nodata = np.nan
                 else:
-                    nodata_mask.append(xr.ones_like(arr).astype(bool))
+                    mask = xr.ones_like(arr).astype(bool)
+            elif np.isnan(nodata):
+                mask = xr.where(arr.notnull(), 1, 0).astype(bool)
             else:
-                nodata_mask.append(xr.where(arr != nodata and arr.notnull(), 1, 0).astype(bool))
+                mask = xr.where((arr != nodata) & arr.notnull(), 1, 0).astype(bool)
 
-        return cls(data, path, xr.merge(nodata_mask), nodata)
+            mask.name = var
+            nodata_mask.append(mask)
+            nodata_vals[var] = nodata
+
+        return cls(data, path, xr.merge(nodata_mask), nodata_vals)
 
     @property
     def crs(self):
@@ -86,8 +93,8 @@ class Grid:
         for var, arr in self.data.data_vars.items():
             valid = arr.where(self.nodata_mask[var])
 
-            data_min = valid.min()
-            data_max = valid.max()
+            data_min = valid.min().compute().item()
+            data_max = valid.max().compute().item()
 
             transformation = TransformParameters(
                 data_max = data_max,
@@ -103,15 +110,19 @@ class Grid:
             data = self.data,
             original_location = self.original_location,
             nodata_mask = self.nodata_mask,
+            nodata = self.nodata,
             transformation = transform_dict
         )
 
     def transform(self):
 
+        if self.transformation is None:
+            raise ValueError("Fit transformation frist before calling .transform()")
+
         scaled_arrays = []
         for var, arr in self.data.data_vars.items():
 
-            if var not in self.transformation.keys():
+            if var not in self.transformation:
                 logger.warning(f'No transformation stored for variable {var}, Will be skipped')
                 continue
 
@@ -130,10 +141,14 @@ class Grid:
             # Preserve nodata
             scaled = scaled.where(self.nodata_mask[var], transform.out_min)
 
+            scaled_arrays.append(scaled)
+
         scaled_ds = xr.merge(scaled_arrays)
         return Grid(
             data = scaled_ds,
             original_location = self.original_location,
+            nodata_mask = self.nodata_mask[list(scaled_ds.keys())],
+            nodata = {i:j for i,j in self.nodata.items() if i in scaled_ds.data_vars},
             transformation = {i:j for i,j in self.transformation.items() if i in scaled_ds.data_vars}
         )
 
