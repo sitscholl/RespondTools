@@ -9,6 +9,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_TRANSFORM_TEMPLATE = """scale = {scale}
+offset = {offset}
+
+transform back using: value * scale + offset
+"""
+
 @dataclass
 class TransformParameters:
     data_max: float | int
@@ -32,6 +38,10 @@ class TransformParameters:
     def offset(self):
         return (self.data_min - self.out_min * self.scale)
 
+    def write(self, out_path: str | Path):
+        with open(out_path, "w") as f:
+            f.write(_TRANSFORM_TEMPLATE.format(scale = self.scale, offset = self.offset))
+
 @dataclass
 class Grid:
     data: xr.Dataset
@@ -54,7 +64,7 @@ class Grid:
         data = xr.open_dataarray(path).squeeze(drop = True)
 
         if isinstance(data, xr.DataArray):
-            data = data.to_dataset(name = data.name or 'variable')
+            data = data.to_dataset(name = path.stem)
 
         nodata_mask = []
         nodata_vals = {}
@@ -231,6 +241,18 @@ class Grid:
             transformed = True
         )
 
+    def write(self, out_dir: str | Path, with_sidecar: bool = False):
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents = True, exist_ok = True)
+
+        for var, arr in self.data.data_vars.items():
+            arr.rio.to_raster(f"{out_dir}/{var}.tif")
+            if with_sidecar:
+                if var not in self.transformation:
+                    logger.warning(f"No transformation present for {var}. Sidecar cannot be written")
+                else:
+                    self.transformation[var].write(f"{out_dir}/{var}_transformation.txt")
+
     def align(self, *others):
         pass
 
@@ -241,5 +263,5 @@ if __name__ == '__main__':
     transformed = original.transform()
     original2 = transformed.inverse_transform()
 
-    transformed.data.rio.to_raster('transformed.tif')
-    original2.data.rio.to_raster('original2.tif')
+    transformed.write('data/transformed', with_sidecar = True)
+    original2.data.rio.to_raster('data/transformed/original_back.tif')
