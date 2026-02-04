@@ -268,12 +268,21 @@ class Grid:
         out_dir.mkdir(parents = True, exist_ok = True)
 
         for var, arr in self.data.data_vars.items():
-            arr.rio.to_raster(f"{out_dir}/{var}.tif")
+            out_array = Path(f"{out_dir}/{var}.tif")
+            out_sidecar = Path(f"{out_dir}/{var}_transformation.txt")
+
+            if out_array.exists():
+                raise ValueError(f"Cannot write {out_array}. File already exists")
+
+            if with_sidecar and out_sidecar.exists():
+                raise ValueError(f"Cannot write {out_sidecar}. File already exists")
+
+            arr.rio.to_raster(out_array)
             if with_sidecar:
                 if var not in self.transformation:
                     logger.warning(f"No transformation present for {var}. Sidecar cannot be written")
                 else:
-                    self.transformation[var].write(f"{out_dir}/{var}_transformation.txt")
+                    self.transformation[var].write(out_sidecar)
 
     def align(self, *others):
         pass
