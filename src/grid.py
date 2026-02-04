@@ -11,6 +11,11 @@ logger = logging.getLogger(__name__)
 
 _TRANSFORM_TEMPLATE = """scale = {scale}
 offset = {offset}
+data_min = {data_min}
+data_max = {data_max}
+out_min = {out_min}
+out_max = {out_max}
+out_nodata = {out_nodata}
 
 transform back using: value * scale + offset
 """
@@ -40,7 +45,17 @@ class TransformParameters:
 
     def write(self, out_path: str | Path):
         with open(out_path, "w") as f:
-            f.write(_TRANSFORM_TEMPLATE.format(scale = self.scale, offset = self.offset))
+            f.write(
+                _TRANSFORM_TEMPLATE.format(
+                    scale = self.scale,
+                    offset = self.offset,
+                    data_min = self.data_min,
+                    data_max = self.data_max,
+                    out_min = self.out_min,
+                    out_max = self.out_max,
+                    out_nodata = self.out_nodata
+                )
+            )
 
 @dataclass
 class Grid:
@@ -225,8 +240,15 @@ class Grid:
                 continue
             transform = self.transformation[var]
 
+            if transform.out_nodata is None:
+                inverse_mask = self.nodata_mask[var]
+            elif np.issubdtype(arr.dtype, np.floating) and np.isnan(transform.out_nodata):
+                inverse_mask = arr.notnull()
+            else:
+                inverse_mask = (arr != transform.out_nodata) & arr.notnull()
+
             restored = (arr.astype(np.float64) * transform.scale + transform.offset).astype(self.original_dtype[var])
-            restored = xr.where(self.nodata_mask[var], restored, self.original_nodata[var])
+            restored = xr.where(inverse_mask, restored, self.original_nodata[var])
 
             back_transformed_arrays.append(restored)
 
@@ -258,7 +280,7 @@ class Grid:
 
 if __name__ == '__main__':
 
-    original = Grid.from_geotiff("huglin_1981-2010_clip.tif")
+    original = Grid.from_geotiff("data/huglin_1981-2010_clip.tif")
     original = original.fit_transformation(output_nodata = 'min')
     transformed = original.transform()
     original2 = transformed.inverse_transform()
