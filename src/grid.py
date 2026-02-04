@@ -15,6 +15,7 @@ class TransformParameters:
     data_min: float | int
     out_max: float | int
     out_min: float | int
+    out_nodata: float | int | None
     original_dtype: np.dtype
     new_dtype: np.dtype
 
@@ -39,6 +40,8 @@ class Grid:
     nodata_mask: xr.Dataset
     nodata: Dict[str, float | int | None]
     transformation: Dict[str, TransformParameters] | None = None
+    output_nodata_choice: str | float | int | None = None
+    output_nodata: float | int | None = None
 
     def __post_init__(self):
         if not isinstance(self.data, xr.Dataset):
@@ -84,10 +87,45 @@ class Grid:
     def resolution(self):
         return self.data.rio.resolution()
 
-    def fit_transformation(self, out_dtype: np.dtype = np.uint8):
-        
-        out_info = np.iinfo(out_dtype)
-        out_min, out_max = out_info.min, out_info.max
+    @staticmethod
+    def _resolve_output_nodata(out_dtype: np.dtype, output_nodata: str | float | int | None):
+        if np.issubdtype(out_dtype, np.integer):
+            out_info = np.iinfo(out_dtype)
+        else:
+            out_info = np.finfo(out_dtype)
+
+        dtype_min, dtype_max = out_info.min, out_info.max
+
+        if output_nodata is None:
+            return None, dtype_min, dtype_max
+
+        if isinstance(output_nodata, str):
+            output_nodata = output_nodata.lower()
+            if output_nodata == "min":
+                nodata = dtype_min
+            elif output_nodata == "max":
+                nodata = dtype_max
+            else:
+                raise ValueError("output_nodata must be 'min', 'max', or a numeric value equal to the dtype min/max")
+        else:
+            nodata = output_nodata
+
+        if np.issubdtype(out_dtype, np.floating) and np.isnan(nodata):
+            return nodata, dtype_min, dtype_max
+
+        if nodata == dtype_min:
+            if np.issubdtype(out_dtype, np.integer):
+                return nodata, dtype_min + 1, dtype_max
+            return nodata, np.nextafter(dtype_min, dtype_max), dtype_max
+        if nodata == dtype_max:
+            if np.issubdtype(out_dtype, np.integer):
+                return nodata, dtype_min, dtype_max - 1
+            return nodata, dtype_min, np.nextafter(dtype_max, dtype_min)
+
+        raise ValueError("output_nodata must be 'min', 'max', or a numeric value equal to the dtype min/max")
+
+    def fit_transformation(self, out_dtype: np.dtype = np.uint8, output_nodata: str | float | int | None = None):
+        out_nodata, out_min, out_max = self._resolve_output_nodata(out_dtype, output_nodata)
 
         transform_dict = {}
         for var, arr in self.data.data_vars.items():
@@ -101,6 +139,7 @@ class Grid:
                 data_min = data_min,
                 out_max = out_max,
                 out_min = out_min,
+                out_nodata = out_nodata,
                 original_dtype = arr.dtype,
                 new_dtype = out_dtype
             )
@@ -111,13 +150,15 @@ class Grid:
             original_location = self.original_location,
             nodata_mask = self.nodata_mask,
             nodata = self.nodata,
-            transformation = transform_dict
+            transformation = transform_dict,
+            output_nodata_choice = output_nodata,
+            output_nodata = out_nodata
         )
 
     def transform(self):
 
         if self.transformation is None:
-            raise ValueError("Fit transformation frist before calling .transform()")
+            raise ValueError("Fit transformation first before calling .transform()")
 
         scaled_arrays = []
         for var, arr in self.data.data_vars.items():
@@ -132,14 +173,15 @@ class Grid:
             scaled = scaled * (transform.out_max - transform.out_min) + transform.out_min
             scaled = scaled.clip(transform.out_min, transform.out_max)
 
+            fill_value = transform.out_nodata if transform.out_nodata is not None else transform.out_min
             if np.issubdtype(transform.new_dtype, np.integer):
                 # Avoid invalid casts when NaN/Inf are present.
-                scaled = scaled.where(np.isfinite(scaled), transform.out_min)
+                scaled = scaled.where(np.isfinite(scaled), fill_value)
 
             scaled = scaled.astype(transform.new_dtype)
 
             # Preserve nodata
-            scaled = scaled.where(self.nodata_mask[var], transform.out_min)
+            scaled = scaled.where(self.nodata_mask[var], fill_value)
 
             scaled_arrays.append(scaled)
 
@@ -149,7 +191,9 @@ class Grid:
             original_location = self.original_location,
             nodata_mask = self.nodata_mask[list(scaled_ds.keys())],
             nodata = {i:j for i,j in self.nodata.items() if i in scaled_ds.data_vars},
-            transformation = {i:j for i,j in self.transformation.items() if i in scaled_ds.data_vars}
+            transformation = {i:j for i,j in self.transformation.items() if i in scaled_ds.data_vars},
+            output_nodata_choice = self.output_nodata_choice,
+            output_nodata = self.output_nodata
         )
 
     # def inverse_transform(self, out_dtype: np.dtype | None = None):
