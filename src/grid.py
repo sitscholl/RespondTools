@@ -16,7 +16,6 @@ class TransformParameters:
     out_max: float | int
     out_min: float | int
     out_nodata: float | int | None
-    original_dtype: np.dtype
     new_dtype: np.dtype
 
     @property
@@ -38,10 +37,10 @@ class Grid:
     data: xr.Dataset
     original_location: str | Path
     nodata_mask: xr.Dataset
-    nodata: Dict[str, float | int | None]
+    original_nodata: Dict[str, float | int | None]
+    original_dtype: Dict[str, np.dtype]
     transformation: Dict[str, TransformParameters] | None = None
-    output_nodata_choice: str | float | int | None = None
-    output_nodata: float | int | None = None
+    transformed: bool = False
 
     def __post_init__(self):
         if not isinstance(self.data, xr.Dataset):
@@ -59,6 +58,7 @@ class Grid:
 
         nodata_mask = []
         nodata_vals = {}
+        dtype_vals = {}
         for var, arr in data.data_vars.items():
             nodata = getattr(arr.rio, "nodata", None)
             
@@ -76,8 +76,9 @@ class Grid:
             mask.name = var
             nodata_mask.append(mask)
             nodata_vals[var] = nodata
+            dtype_vals[var] = arr.dtype
 
-        return cls(data, path, xr.merge(nodata_mask), nodata_vals)
+        return cls(data, path, xr.merge(nodata_mask), nodata_vals, dtype_vals)
 
     @property
     def crs(self):
@@ -140,7 +141,6 @@ class Grid:
                 out_max = out_max,
                 out_min = out_min,
                 out_nodata = out_nodata,
-                original_dtype = arr.dtype,
                 new_dtype = out_dtype
             )
             transform_dict[var] = transformation
@@ -149,10 +149,9 @@ class Grid:
             data = self.data,
             original_location = self.original_location,
             nodata_mask = self.nodata_mask,
-            nodata = self.nodata,
+            original_nodata = self.original_nodata,
+            original_dtype = self.original_dtype,
             transformation = transform_dict,
-            output_nodata_choice = output_nodata,
-            output_nodata = out_nodata
         )
 
     def transform(self):
@@ -171,6 +170,10 @@ class Grid:
 
             scaled = (arr - transform.data_min) / transform.denom
             scaled = scaled * (transform.out_max - transform.out_min) + transform.out_min
+
+            if np.issubdtype(transform.new_dtype, np.integer):
+                scaled = scaled.round()
+
             scaled = scaled.clip(transform.out_min, transform.out_max)
 
             fill_value = transform.out_nodata if transform.out_nodata is not None else transform.out_min
@@ -190,46 +193,43 @@ class Grid:
             data = scaled_ds,
             original_location = self.original_location,
             nodata_mask = self.nodata_mask[list(scaled_ds.keys())],
-            nodata = {i:j for i,j in self.nodata.items() if i in scaled_ds.data_vars},
+            original_nodata = {i:j for i,j in self.original_nodata.items() if i in scaled_ds.data_vars},
+            original_dtype = {i:j for i,j in self.original_dtype.items() if i in scaled_ds.data_vars},
             transformation = {i:j for i,j in self.transformation.items() if i in scaled_ds.data_vars},
-            output_nodata_choice = self.output_nodata_choice,
-            output_nodata = self.output_nodata
+            transformed = True
         )
 
-    # def inverse_transform(self, out_dtype: np.dtype | None = None):
-    #     data = self.data
-    #     target_dtype = out_dtype or self.original_dtype
-    #     nodata = self.nodata
-    #     if nodata is None:
-    #         nodata = getattr(data.rio, "nodata", None)
+    def inverse_transform(self):
 
-    #     def _inverse(da: xr.DataArray) -> xr.DataArray:
-    #         scale = da.attrs.get("scale", self.scale)
-    #         offset = da.attrs.get("offset", self.offset)
-    #         if scale is None or offset is None:
-    #             raise ValueError("Missing scale/offset for inverse_transform.")
-    #         restored = da.astype(np.float64) * scale + offset
-    #         if target_dtype is not None and np.issubdtype(target_dtype, np.integer):
-    #             restored = restored.where(np.isfinite(restored), 0)
-    #         if target_dtype is not None:
-    #             restored = restored.astype(target_dtype)
-    #         if nodata is not None:
-    #             restored = restored.where(np.isfinite(restored), nodata)
-    #         return restored
+        if self.transformation is None:
+            raise ValueError("Fit transformation first and then tranform before calling .inverse_transform()")
 
-    #     if isinstance(data, xr.Dataset):
-    #         restored = data.map(_inverse)
-    #     else:
-    #         restored = _inverse(data)
+        if not self.transformed:
+            raise ValueError("Transform first before calling .inverse_transform()")
 
-    #     return Grid(
-    #         data=restored,
-    #         original_location=self.original_location,
-    #         original_dtype=target_dtype,
-    #         scale=None,
-    #         offset=None,
-    #         nodata=nodata,
-    #     )
+        back_transformed_arrays = []
+        for var, arr in self.data.data_vars.items():
+
+            if var not in self.transformation:
+                logger.warning(f"Could not find tranformation for {var}. Skipping")
+                continue
+            transform = self.transformation[var]
+
+            restored = (arr.astype(np.float64) * transform.scale + transform.offset).astype(self.original_dtype[var])
+            restored = xr.where(self.nodata_mask[var], restored, self.original_nodata[var])
+
+            back_transformed_arrays.append(restored)
+
+        restored_ds = xr.merge(back_transformed_arrays)
+        return Grid(
+            data=restored_ds,
+            original_location=self.original_location,
+            nodata_mask = self.nodata_mask[list(restored_ds.keys())],
+            original_nodata = {i:j for i,j in self.original_nodata.items() if i in restored_ds.data_vars},
+            original_dtype = {i:j for i,j in self.original_dtype.items() if i in restored_ds.data_vars},
+            transformation = {i:j for i,j in self.transformation.items() if i in restored_ds.data_vars},
+            transformed = True
+        )
 
     def align(self, *others):
         pass
@@ -237,8 +237,9 @@ class Grid:
 if __name__ == '__main__':
 
     original = Grid.from_geotiff("huglin_1981-2010_clip.tif")
+    original = original.fit_transformation(output_nodata = 'min')
     transformed = original.transform()
-    original2 = transformed.inverse_transform(out_dtype = original.data.dtype)
+    original2 = transformed.inverse_transform()
 
     transformed.data.rio.to_raster('transformed.tif')
     original2.data.rio.to_raster('original2.tif')
