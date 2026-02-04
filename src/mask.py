@@ -51,3 +51,14 @@ class ArrayMasker:
         region_arr = region_arr.rio.write_crs(ds.rio.crs)
         
         return region_arr
+
+    def clip(self, ds: xr.DataArray | xr.Dataset, all_touched: bool = True, invert: bool = False):
+
+        # Ensure the region is in the same CRS as the elevation data
+        if self.aoi.crs != ds.rio.crs:
+            region = self.aoi.to_crs(ds.rio.crs)
+        else:
+            region = self.aoi
+
+        geom = [region.geometry.iloc[0]]
+        return ds.rio.clip(geom, all_touched=all_touched, drop=True, invert = invert)

@@ -84,8 +84,7 @@ class Grid:
             data = data.to_dataset(name = path.stem)
 
         if mask is not None:
-            aoi_array = mask.create_mask(data, **kwargs)
-            data = data.where(aoi_array, drop = True)
+            data = mask.clip(data)
 
         nodata_mask = []
         nodata_vals = {}
