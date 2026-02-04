@@ -14,6 +14,6 @@ def load_config(file: str | Path):
         with open(file) as f:
             config = yaml.safe_load(f)
     except Exception as e:
-        logger.exception(f"Error reading config file: {e}")
+        raise ValueError(f"Error reading config file: {e}")
     
     return config

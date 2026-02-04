@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Dict
 import logging
 
+from .mask import ArrayMasker
+
 logger = logging.getLogger(__name__)
 
 _TRANSFORM_TEMPLATE = """scale = {scale}
@@ -72,7 +74,7 @@ class Grid:
             raise ValueError(f"Data must be an xr.Dataset. Got {type(self.data)}")
 
     @classmethod
-    def from_geotiff(cls, path: str | Path):
+    def from_geotiff(cls, path: str | Path, mask: ArrayMasker | None = None, **kwargs):
         path = Path(path)
         if not path.exists():
             raise ValueError(f"Could not find geotiff file at {path}")
@@ -80,6 +82,10 @@ class Grid:
 
         if isinstance(data, xr.DataArray):
             data = data.to_dataset(name = path.stem)
+
+        if mask is not None:
+            aoi_array = mask.create_mask(data, **kwargs)
+            data = data.where(aoi_array, drop = True)
 
         nodata_mask = []
         nodata_vals = {}
@@ -151,6 +157,7 @@ class Grid:
         raise ValueError("output_nodata must be 'min', 'max', or a numeric value equal to the dtype min/max")
 
     def fit_transformation(self, out_dtype: np.dtype = np.uint8, output_nodata: str | float | int | None = None):
+        logger.info('Fitting transformation...')
         out_nodata, out_min, out_max = self._resolve_output_nodata(out_dtype, output_nodata)
 
         transform_dict = {}
@@ -180,7 +187,7 @@ class Grid:
         )
 
     def transform(self):
-
+        logger.info('Transforming dataset...')
         if self.transformation is None:
             raise ValueError("Fit transformation first before calling .transform()")
 
@@ -264,6 +271,7 @@ class Grid:
         )
 
     def write(self, out_dir: str | Path, with_sidecar: bool = False):
+        logger.info("Writing dataset to files...")
         out_dir = Path(out_dir)
         out_dir.mkdir(parents = True, exist_ok = True)
 

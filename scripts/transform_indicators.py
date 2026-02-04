@@ -3,10 +3,17 @@ import logging
 import sys
 
 from src.grid import Grid
+from src.mask import ArrayMasker
 
 logger = logging.getLogger(__name__)
 
-def transform_indicators(files: list[str | Path], out_dir: str | Path, output_nodata = 'min', with_sidecar = True):
+def transform_indicators(
+    files: list[str | Path], 
+    out_dir: str | Path, 
+    output_nodata = 'min', 
+    with_sidecar = True, 
+    region_mask: ArrayMasker | None = None
+    ):
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents = True, exist_ok = True)
@@ -20,7 +27,7 @@ def transform_indicators(files: list[str | Path], out_dir: str | Path, output_no
                 logger.warning(f"File {file} does not exist. Skipping...")
                 continue
 
-            grid = Grid.from_geotiff(file)
+            grid = Grid.from_geotiff(file, mask = region_mask)
             grid = grid.fit_transformation(output_nodata = output_nodata)
             transformed = grid.transform()
 
@@ -32,6 +39,7 @@ def transform_indicators(files: list[str | Path], out_dir: str | Path, output_no
 if __name__ == '__main__':
 
     from src.utils import load_config
+    import geopandas as gpd
 
     logging.basicConfig(level = logging.INFO, force = True)
 
@@ -48,4 +56,11 @@ if __name__ == '__main__':
 
     logger.info(f'Found {len(files)} files to process')
 
-    transform_indicators(files, out_dir = out_dir)
+    region_mask = config['transformation'].get('region_mask')
+    if region_mask is not None:
+        region_gdf = gpd.read_file(region_mask)
+        region_mask = ArrayMasker(region_gdf)
+    else:
+        logger.info('No region mask provided; arrays will not be masked')
+
+    transform_indicators(files, out_dir = out_dir, region_mask = region_mask)
