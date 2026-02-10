@@ -81,7 +81,8 @@ class GridLoader:
         max_resolution: float = 100, 
         target_crs: str = "4326", 
         resampling_method: str = 'bilinear',
-        filesize_threshold: int = 1_000_000
+        filesize_threshold: int = 1_000_000,
+        allow_quick_resample: bool = False
         ):
 
         self.max_resolution_m = max_resolution
@@ -91,6 +92,7 @@ class GridLoader:
             raise ValueError(f"Invalid target_crs: {target_crs}") from exc
         self.resampling_method = resampling_method
         self.filesize_threshold = filesize_threshold
+        self.allow_quick_resample = allow_quick_resample
 
         self.files = []
 
@@ -114,7 +116,7 @@ class GridLoader:
 
         filesize = file.stat().st_size
         if filesize > self.filesize_threshold:
-            chunks = 'auto'
+            chunks = {"x": 2048, "y": 2048}
         else:
             chunks = None
 
@@ -141,6 +143,16 @@ class GridLoader:
 
         needs_resample = source_res_in_target < allowed_max_res
         needs_reproject = data_crs != self.target_crs
+
+        if needs_resample and self.allow_quick_resample:
+            resample_factor = max(1, int(np.floor(allowed_max_res / source_res_in_target)))
+            if resample_factor > 1:
+                data = data.isel(x=slice(None, None, resample_factor), y=slice(None, None, resample_factor))
+                grid_res = GridResolution.from_array(data)
+                data = data.rio.write_transform(data.rio.transform(recalc = True))
+                data = data.rio.write_crs(data_crs)
+            needs_resample = False
+
         if needs_resample or needs_reproject:
             data = self._resample_and_reproject(
                 data,
@@ -167,9 +179,11 @@ class GridLoader:
             f"Resampling data from crs {data.rio.crs.to_epsg()} and resolution {grid_res.res} "
             f"to crs {self.target_crs.to_epsg()} and resolution {target_res}"
         )
-        return xr_reproject(
+        data_re = xr_reproject(
             data,
             how=self.target_crs,
             resampling=self.resampling_method,
             resolution=target_res
         )
+        data_re = data_re.rio.write_crs(self.target_crs)
+        return data_re
