@@ -62,7 +62,6 @@ class TransformParameters:
 @dataclass
 class Grid:
     data: xr.Dataset
-    original_location: str | Path
     nodata_mask: xr.Dataset
     original_nodata: Dict[str, float | int | None]
     original_dtype: Dict[str, np.dtype]
@@ -72,6 +71,26 @@ class Grid:
     def __post_init__(self):
         if not isinstance(self.data, xr.Dataset):
             raise ValueError(f"Data must be an xr.Dataset. Got {type(self.data)}")
+
+    @classmethod
+    def from_dataset(cls, data: xr.Dataset, **kwargs):
+        
+        if not isinstance(data, xr.Dataset):
+            raise ValueError(f"data must be an xarray dataset. Got {type(data)}")
+
+        nodata_mask = []
+        nodata_vals = {}
+        dtype_vals = {}
+        for var, arr in data.data_vars.items():
+
+            mask, nodata = cls._prepare_nodata_mask(arr)
+
+            mask.name = var
+            nodata_mask.append(mask)
+            nodata_vals[var] = nodata
+            dtype_vals[var] = arr.dtype
+
+        return cls(data, xr.merge(nodata_mask), nodata_vals, dtype_vals)
 
     @classmethod
     def from_geotiff(cls, path: str | Path, mask: ArrayMasker | None = None, **kwargs):
@@ -90,25 +109,32 @@ class Grid:
         nodata_vals = {}
         dtype_vals = {}
         for var, arr in data.data_vars.items():
-            nodata = getattr(arr.rio, "nodata", None)
-            
-            if nodata is None:
-                if np.issubdtype(arr.dtype, np.floating):
-                    mask = xr.where(arr.notnull(), 1, 0).astype(bool)
-                    nodata = np.nan
-                else:
-                    mask = xr.ones_like(arr).astype(bool)
-            elif np.isnan(nodata):
-                mask = xr.where(arr.notnull(), 1, 0).astype(bool)
-            else:
-                mask = xr.where((arr != nodata) & arr.notnull(), 1, 0).astype(bool)
+
+            mask, nodata = cls._prepare_nodata_mask(arr)
 
             mask.name = var
             nodata_mask.append(mask)
             nodata_vals[var] = nodata
             dtype_vals[var] = arr.dtype
 
-        return cls(data, path, xr.merge(nodata_mask), nodata_vals, dtype_vals)
+        return cls(data, xr.merge(nodata_mask), nodata_vals, dtype_vals)
+
+    @staticmethod
+    def _prepare_nodata_mask(arr):
+        nodata = getattr(arr.rio, "nodata", None)
+        
+        if nodata is None:
+            if np.issubdtype(arr.dtype, np.floating):
+                mask = xr.where(arr.notnull(), 1, 0).astype(bool)
+                nodata = np.nan
+            else:
+                mask = xr.ones_like(arr).astype(bool)
+        elif np.isnan(nodata):
+            mask = xr.where(arr.notnull(), 1, 0).astype(bool)
+        else:
+            mask = xr.where((arr != nodata) & arr.notnull(), 1, 0).astype(bool)
+
+        return mask, nodata
 
     @property
     def crs(self):
@@ -178,7 +204,6 @@ class Grid:
 
         return Grid(
             data = self.data,
-            original_location = self.original_location,
             nodata_mask = self.nodata_mask,
             original_nodata = self.original_nodata,
             original_dtype = self.original_dtype,
@@ -222,7 +247,6 @@ class Grid:
         scaled_ds = xr.merge(scaled_arrays)
         return Grid(
             data = scaled_ds,
-            original_location = self.original_location,
             nodata_mask = self.nodata_mask[list(scaled_ds.keys())],
             original_nodata = {i:j for i,j in self.original_nodata.items() if i in scaled_ds.data_vars},
             original_dtype = {i:j for i,j in self.original_dtype.items() if i in scaled_ds.data_vars},
@@ -261,7 +285,6 @@ class Grid:
         restored_ds = xr.merge(back_transformed_arrays)
         return Grid(
             data=restored_ds,
-            original_location=self.original_location,
             nodata_mask = self.nodata_mask[list(restored_ds.keys())],
             original_nodata = {i:j for i,j in self.original_nodata.items() if i in restored_ds.data_vars},
             original_dtype = {i:j for i,j in self.original_dtype.items() if i in restored_ds.data_vars},
