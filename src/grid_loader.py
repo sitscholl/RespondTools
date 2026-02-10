@@ -86,7 +86,7 @@ class GridLoader:
         max_resolution: float = 100, 
         target_crs: str = "4326", 
         resampling_method: str = 'bilinear',
-        filesize_threshold: int = 1_000_000,
+        filesize_threshold: int = 1_000_000_000,
         allow_quick_resample: bool = False
         ):
 
