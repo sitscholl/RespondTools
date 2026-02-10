@@ -18,6 +18,8 @@ class GridResolution:
 
     @classmethod
     def from_array(cls, array: xr.DataArray | xr.Dataset):
+        if array.rio.crs is None:
+            raise ValueError("No CRS found on input array")
         res = np.min(np.abs(array.rio.resolution())).item()
         crs = CRS.from_user_input(array.rio.crs)
         unit = 'm' if crs.is_projected else 'deg'
@@ -126,14 +128,25 @@ class GridLoader:
             data = data.rename({'band_data': file.stem})
 
         grid_res = GridResolution.from_array(data)
-        if grid_res.unit == 'm':
+        if self.target_crs.is_projected:
             allowed_max_res = self.max_resolution_m
         else:
             allowed_max_res = grid_res.to_deg(self.max_resolution_m)
 
         data_crs = CRS.from_user_input(data.rio.crs)
-        if (grid_res.res < allowed_max_res) or data_crs != self.target_crs:
-            data = self._resample_and_reproject(data, grid_res = grid_res, allowed_max_resolution = allowed_max_res)
+        if self.target_crs.is_projected:
+            source_res_in_target = grid_res.to_m()
+        else:
+            source_res_in_target = grid_res.to_deg()
+
+        needs_resample = source_res_in_target < allowed_max_res
+        needs_reproject = data_crs != self.target_crs
+        if needs_resample or needs_reproject:
+            data = self._resample_and_reproject(
+                data,
+                grid_res = grid_res,
+                allowed_max_resolution = allowed_max_res
+            )
 
         return data
 
@@ -145,18 +158,10 @@ class GridLoader:
             or (not data.rio.crs.is_projected and not self.target_crs.is_projected)
         )
 
-        if grid_res.res >= allowed_max_resolution:
-            if resolution_units_stay:
-                target_res = "same"
-            elif self.target_crs.is_projected:
-                target_res = grid_res.to_m()
-            else:
-                target_res = grid_res.to_deg()
+        if grid_res.res >= allowed_max_resolution and resolution_units_stay:
+            target_res = "same"
         else:
-            if self.target_crs.is_projected:
-                target_res = grid_res.to_m(allowed_max_resolution)
-            else:
-                target_res = grid_res.to_deg(allowed_max_resolution)
+            target_res = allowed_max_resolution
 
         logger.info(
             f"Resampling data from crs {data.rio.crs.to_epsg()} and resolution {grid_res.res} "
