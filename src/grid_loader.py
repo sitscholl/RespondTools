@@ -6,6 +6,7 @@ from pathlib import Path
 import logging
 from pyproj import CRS, Geod, Transformer
 from dataclasses import dataclass
+from affine import Affine
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +122,8 @@ class GridLoader:
             chunks = None
 
         data = xr.open_dataset(file, chunks = chunks)
-
-        if data.rio.crs is None:
-            raise ValueError(f"No crs found for file {file}")
-
+        self._validate_array(data, file)
+        
         data_vars = list(data.data_vars.keys())
         if len(data_vars) == 1 and data_vars[0] == 'band_data':
             data = data.rename({'band_data': file.stem})
@@ -188,3 +187,17 @@ class GridLoader:
         )
         data_re = data_re.rio.write_crs(self.target_crs)
         return data_re
+
+    def _validate_array(self, data, file):
+        if data.rio.crs is None:
+            raise ValueError(f"No crs found for file {file}")
+            
+        try:
+            transform = data.rio.transform()
+        except Exception as exc:
+            raise ValueError(f"Could not read geotransform for file {file}") from exc
+        if transform is None or transform == Affine.identity():
+            raise ValueError(f"Invalid geotransform for file {file}. Dataset is not georeferenced.")
+
+        if not ('x' in data.dims and 'y' in data.dims):
+            raise ValueError(f"Dataset does not contain x any dims. Got {data.dims}")
