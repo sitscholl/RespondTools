@@ -183,7 +183,8 @@ class GridLoader:
             data,
             how=self.target_crs,
             resampling=self.resampling_method,
-            resolution=target_res
+            resolution=target_res,
+            dst_nodata = np.nan
         )
         data_re = data_re.rio.write_crs(self.target_crs)
         return data_re
