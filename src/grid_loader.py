@@ -18,13 +18,17 @@ class GridResolution:
     reference_latitude: float
 
     @classmethod
-    def from_array(cls, array: xr.DataArray | xr.Dataset):
+    def from_array(cls, array: xr.DataArray | xr.Dataset, ref_lat: float = None):
         if array.rio.crs is None:
             raise ValueError("No CRS found on input array")
         res = np.min(np.abs(array.rio.resolution())).item()
         crs = CRS.from_user_input(array.rio.crs)
         unit = 'm' if crs.is_projected else 'deg'
-        reference_latitude = cls._reference_lat(array)
+
+        if ref_lat is None:
+            reference_latitude = cls._reference_lat(array)
+        else:
+            reference_latitude = ref_lat
 
         return cls(
             res = res,
@@ -123,12 +127,12 @@ class GridLoader:
 
         data = xr.open_dataset(file, chunks = chunks)
         self._validate_array(data, file)
-        
+
         data_vars = list(data.data_vars.keys())
         if len(data_vars) == 1 and data_vars[0] == 'band_data':
             data = data.rename({'band_data': file.stem})
 
-        grid_res = GridResolution.from_array(data)
+        grid_res = GridResolution.from_array(data, ref_lat = 0.0)
         if self.target_crs.is_projected:
             allowed_max_res = self.max_resolution_m
         else:
@@ -146,8 +150,9 @@ class GridLoader:
         if needs_resample and self.allow_quick_resample:
             resample_factor = max(1, int(np.floor(allowed_max_res / source_res_in_target)))
             if resample_factor > 1:
+                logger.info("Resampling data using quick resample")
                 data = data.isel(x=slice(None, None, resample_factor), y=slice(None, None, resample_factor))
-                grid_res = GridResolution.from_array(data)
+                grid_res = GridResolution.from_array(data, ref_lat = 0.0)
                 data = data.rio.write_transform(data.rio.transform(recalc = True))
                 data = data.rio.write_crs(data_crs)
             needs_resample = False
