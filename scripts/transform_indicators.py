@@ -21,8 +21,9 @@ def transform_indicators(
 
     for file, ds in grid_loader.iter_datasets():
         try:
-            logger.info(f"Loading file {file}")
-
+            logger.info(f"Processing file {file}")
+            ds = ds.compute()
+            
             if region_mask is not None:
                 ds = region_mask.clip(ds)
 
