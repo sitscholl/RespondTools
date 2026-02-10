@@ -18,6 +18,21 @@ class GridLoader:
             raise ValueError(f"Invalid target_crs: {target_crs}") from exc
         self.resampling_method = resampling_method
 
+        self.files = []
+
+    def register_files(self, files: list[str]):
+        self.files = [Path(i) for i in files]
+
+    def iter_datasets(self):
+        for file in self.files:
+
+            if not file.exists():
+                logger.warning(f"File {file} does not exist. Skipping...")
+                continue
+            
+            data = self.load(file)
+            yield file, data
+
     def load(self, file: str | Path):
         file = Path(file)
         if not file.exists():

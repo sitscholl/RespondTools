@@ -2,13 +2,14 @@ from pathlib import Path
 import logging
 import sys
 
+from src.grid_loader import GridLoader
 from src.grid import Grid
 from src.mask import ArrayMasker
 
 logger = logging.getLogger(__name__)
 
 def transform_indicators(
-    files: list[str | Path], 
+    grid_loader: GridLoader, 
     out_dir: str | Path, 
     output_nodata = 'min', 
     with_sidecar = True, 
@@ -18,16 +19,14 @@ def transform_indicators(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents = True, exist_ok = True)
 
-    for file in files:
+    for file, ds in grid_loader.iter_datasets():
         try:
-            logger.info(f"Processing file {file}")
+            logger.info(f"Loading file {file}")
+            
+            if region_mask is not None:
+                ds = region_mask.clip(ds)
 
-            file = Path(file)
-            if not file.exists():
-                logger.warning(f"File {file} does not exist. Skipping...")
-                continue
-
-            grid = Grid.from_geotiff(file, mask = region_mask)
+            grid = Grid.from_dataset(ds)
             grid = grid.fit_transformation(output_nodata = output_nodata)
             transformed = grid.transform()
 
@@ -56,6 +55,13 @@ if __name__ == '__main__':
 
     logger.info(f'Found {len(files)} files to process')
 
+    grid_loader = GridLoader(
+        max_resolution = config['transformation'].get("max_resolution", 100),
+        target_crs = config['transformation'].get("target_crs", "4326"),
+        resampling_method = config['transformation'].get('resampling_method', 'nearest')
+    )
+    grid_loader.register_files(files)
+
     region_mask = config['transformation'].get('region_mask')
     if region_mask is not None:
         region_gdf = gpd.read_file(region_mask)
@@ -63,4 +69,4 @@ if __name__ == '__main__':
     else:
         logger.info('No region mask provided; arrays will not be masked')
 
-    transform_indicators(files, out_dir = out_dir, region_mask = region_mask)
+    transform_indicators(grid_loader, out_dir = out_dir, region_mask = region_mask)
