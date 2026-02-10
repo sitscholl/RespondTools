@@ -7,5 +7,6 @@ transformation:
 
   grid_loader:
     target_crs: 4326
-    max_resolution: 100
+    max_resolution: 1000
     resampling_method: bilinear
+    allow_quick_resample: True
