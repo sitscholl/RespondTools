@@ -5,9 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "dask[array]>=2026.1.2",
     "geopandas>=1.1.2",
     "ipykernel>=7.1.0",
     "numpy>=2.4.2",
+    "odc-geo>=0.5.0",
     "pyyaml>=6.0.3",
     "rioxarray>=0.21.0",
     "xarray>=2025.11.0",
