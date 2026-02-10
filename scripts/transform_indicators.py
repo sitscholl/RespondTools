@@ -13,7 +13,8 @@ def transform_indicators(
     out_dir: str | Path, 
     output_nodata = 'min', 
     with_sidecar = True, 
-    region_mask: ArrayMasker | None = None
+    region_mask: ArrayMasker | None = None,
+    max_output_value: float | int | None = None
     ):
 
     out_dir = Path(out_dir)
@@ -28,7 +29,7 @@ def transform_indicators(
                 ds = region_mask.clip(ds)
 
             grid = Grid.from_dataset(ds)
-            grid = grid.fit_transformation(output_nodata = output_nodata)
+            grid = grid.fit_transformation(output_nodata = output_nodata, max_value = max_output_value)
             transformed = grid.transform()
 
             transformed.write(out_dir, with_sidecar = with_sidecar)
@@ -41,13 +42,19 @@ if __name__ == '__main__':
     from src.utils import load_config
     import geopandas as gpd
 
-    logging.basicConfig(level = logging.INFO, force = True)
+    logging.basicConfig(
+        level = logging.INFO, force = True, format = '[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s'
+        )
 
     config = load_config('config.yaml')
     
     input_dir = Path(config['transformation']['input'])
     out_dir = Path(config['transformation']['output'])
     pat = config['transformation']['file_pattern']
+    max_output_value = config['transformation'].get('max_output_value')
+
+    if max_output_value is not None:
+        logger.warning(f"Using max output value of {max_output_value}")
 
     files = list(input_dir.glob(pat))
     if len(files) == 0:
@@ -67,4 +74,4 @@ if __name__ == '__main__':
     else:
         logger.info('No region mask provided; arrays will not be masked')
 
-    transform_indicators(grid_loader, out_dir = out_dir, region_mask = region_mask)
+    transform_indicators(grid_loader, out_dir = out_dir, region_mask = region_mask, max_output_value = max_output_value)

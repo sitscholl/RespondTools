@@ -181,9 +181,28 @@ class Grid:
 
         raise ValueError("output_nodata must be 'min', 'max', or a numeric value equal to the dtype min/max")
 
-    def fit_transformation(self, out_dtype: np.dtype = np.uint8, output_nodata: str | float | int | None = None):
+    def fit_transformation(
+        self,
+        out_dtype: np.dtype = np.uint8,
+        output_nodata: str | float | int | None = None,
+        max_value: float | int | None = None
+    ):
         logger.info('Fitting transformation...')
         out_nodata, out_min, out_max = self._resolve_output_nodata(out_dtype, output_nodata)
+        if np.issubdtype(out_dtype, np.integer):
+            out_info = np.iinfo(out_dtype)
+        else:
+            out_info = np.finfo(out_dtype)
+        dtype_min, dtype_max = out_info.min, out_info.max
+
+        if max_value is not None:
+            if max_value < dtype_min or max_value > dtype_max:
+                raise ValueError(f"max_value must be within dtype range [{dtype_min}, {dtype_max}]")
+            if out_nodata is not None and max_value == out_nodata:
+                raise ValueError("max_value cannot equal output_nodata")
+            if max_value <= out_min:
+                raise ValueError("max_value must be greater than out_min")
+            out_max = max_value
 
         transform_dict = {}
         for var, arr in self.data.data_vars.items():
@@ -306,6 +325,15 @@ class Grid:
 
             if with_sidecar and out_sidecar.exists():
                 raise ValueError(f"Cannot write {out_sidecar}. File already exists")
+
+            nodata_value = None
+            if self.transformation is not None and var in self.transformation:
+                nodata_value = self.transformation[var].out_nodata
+            elif var in self.original_nodata:
+                nodata_value = self.original_nodata[var]
+
+            if nodata_value is not None:
+                arr = arr.rio.write_nodata(nodata_value, inplace = False)
 
             arr.rio.to_raster(out_array)
             if with_sidecar:
