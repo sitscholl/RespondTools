@@ -1,5 +1,11 @@
 transformation:
-  input: C:\Users\tscho\OneDrive - Scientific Network South Tyrol\Projekte\Alpine Space - RESPOnD - 04_Deliverables&Outputs\WP 3\OLE_Content\Climate & Environment\Climate\original_files
-  output: C:\Users\tscho\OneDrive - Scientific Network South Tyrol\Projekte\Alpine Space - RESPOnD - 04_Deliverables&Outputs\WP 3\OLE_Content\Climate & Environment\Climate\transformed_files
-  file_pattern: "*.tif"
+  #input: C:\Users\tscho\OneDrive - Scientific Network South Tyrol\Projekte\Alpine Space - RESPOnD - 04_Deliverables&Outputs\WP 3\OLE_Content\Climate & Environment\Climate\original_files
+  input: C:\Users\tscho\OneDrive - Scientific Network South Tyrol\Projekte\Alpine Space - RESPOnD - 04_Deliverables&Outputs\WP 1\A1.3_AWO ecosystem services and climate impact assessment\Data\Geomorphology
+  output: data\transformed_files
+  file_pattern: "DEM.tif"
   region_mask: "data/europe.shp"
+
+  grid_loader:
+    target_crs: 4326
+    max_resolution: 100
+    resampling_method: bilinear

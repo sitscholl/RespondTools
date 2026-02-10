@@ -22,7 +22,7 @@ def transform_indicators(
     for file, ds in grid_loader.iter_datasets():
         try:
             logger.info(f"Loading file {file}")
-            
+
             if region_mask is not None:
                 ds = region_mask.clip(ds)
 
@@ -55,11 +55,8 @@ if __name__ == '__main__':
 
     logger.info(f'Found {len(files)} files to process')
 
-    grid_loader = GridLoader(
-        max_resolution = config['transformation'].get("max_resolution", 100),
-        target_crs = config['transformation'].get("target_crs", "4326"),
-        resampling_method = config['transformation'].get('resampling_method', 'nearest')
-    )
+    loader_config = config['transformation'].get('grid_loader', {})
+    grid_loader = GridLoader(**loader_config)
     grid_loader.register_files(files)
 
     region_mask = config['transformation'].get('region_mask')

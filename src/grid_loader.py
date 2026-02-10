@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class GridLoader:
 
-    def __init__(self, max_resolution: float, target_crs: str, resampling_method: str = 'bilinear'):
+    def __init__(self, max_resolution: float = 100, target_crs: str = "4326", resampling_method: str = 'bilinear'):
         self.max_resolution_m = max_resolution
         try:
             self.target_crs = CRS.from_user_input(target_crs)
