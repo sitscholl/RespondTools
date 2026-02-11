@@ -43,7 +43,7 @@ if __name__ == '__main__':
     import geopandas as gpd
 
     logging.basicConfig(
-        level = logging.INFO, force = True, format = '[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s'
+        level = logging.INFO, force = True, format = '[%(asctime)s] %(levelname)s - %(message)s'
         )
 
     config = load_config('config.yaml')

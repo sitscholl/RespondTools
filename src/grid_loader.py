@@ -121,7 +121,7 @@ class GridLoader:
 
         filesize = file.stat().st_size
         if filesize > self.filesize_threshold:
-            chunks = {"x": 2048, "y": 2048}
+            chunks = {"x": 1024, "y": 1024}
         else:
             chunks = None
 
